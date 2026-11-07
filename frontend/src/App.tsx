@@ -21,7 +21,7 @@ type Page =
   | "details";
 
 function App() {
-  const API = "http://localhost:5000/api/emails";
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api/emails";
 
   const [page, setPage] = useState<Page>("login");
   const [emails, setEmails] = useState<Email[]>([]);
@@ -49,7 +49,7 @@ function App() {
     try {
       setLoading(true);
 
-      const response = await fetch(API);
+      const response = await fetch(API_URL);
 
       if (!response.ok) {
         throw new Error("Unable to load emails");
@@ -180,7 +180,7 @@ function App() {
       let successfulCount = 0;
 
       for (const emailAddress of recipients) {
-        const response = await fetch(`${API}/schedule`, {
+        const response = await fetch(`${API_URL}/schedule`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
