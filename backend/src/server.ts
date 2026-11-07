@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import { emailRouter } from "./routes/emailRoutes";
 import { pool } from "./config/db";
 import { emailQueue } from "./queues/emailQueue";
+import "./workers/emailWorker";
 
 import { createBullBoard } from "@bull-board/api";
 import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
@@ -17,16 +18,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Email API
 app.use("/api/emails", emailRouter);
 
-// Bull Board dashboard
 const serverAdapter = new ExpressAdapter();
 serverAdapter.setBasePath("/admin/queues");
 
 createBullBoard({
   queues: [new BullMQAdapter(emailQueue)],
-  serverAdapter: serverAdapter,
+  serverAdapter,
 });
 
 app.use("/admin/queues", serverAdapter.getRouter());
@@ -47,8 +46,8 @@ app.get("/health", (_req, res) => {
 const PORT = Number(process.env.PORT) || 5000;
 
 app.listen(PORT, async () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Bull Board: http://localhost:${PORT}/admin/queues`);
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Bull Board: /admin/queues`);
 
   try {
     await pool.query("SELECT NOW()");
