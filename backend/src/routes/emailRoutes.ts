@@ -2,7 +2,6 @@
 import { Router } from "express";
 import { pool } from "../config/db";
 import { emailQueue } from "../queues/emailQueue";
-import { elasticClient } from "../config/elasticsearch";
 
 export const emailRouter = Router();
 
@@ -20,7 +19,7 @@ emailRouter.post("/schedule", async (req, res) => {
 
     if (
       isNaN(scheduleDate.getTime()) ||
-      scheduleDate <= new Date()
+      scheduleDate.getTime() <= Date.now()
     ) {
       return res.status(400).json({
         message: "Please select a valid future date and time",
@@ -35,25 +34,6 @@ emailRouter.post("/schedule", async (req, res) => {
     );
 
     const emailId = result.rows[0].id;
-  
-try {
-  await elasticClient.index({
-    index: "emails",
-    id: String(emailId),
-    document: {
-      emailId,
-      recipient,
-      subject,
-      body,
-      scheduledAt: scheduleDate,
-      status: "scheduled",
-    },
-  });
-
-  console.log("Email indexed in Elasticsearch:", emailId);
-} catch (error) {
-  console.error("Elasticsearch indexing error:", error);
-}
 
     await pool.query(
       `INSERT INTO recipients (email_id, recipient_email)
@@ -64,17 +44,19 @@ try {
     const delay = scheduleDate.getTime() - Date.now();
 
     await emailQueue.add(
-  "send-email",
-  { emailId, recipient, subject, body },
-  { delay, jobId: `email-${emailId}` }
-);
+      "send-email",
+      { emailId, recipient, subject, body },
+      {
+        delay,
+        jobId: `email-${emailId}`,
+      }
+    );
 
     return res.status(201).json({
       message: "Email scheduled successfully",
       emailId,
       status: "scheduled",
     });
-
   } catch (error) {
     console.error("SCHEDULING ERROR DETAILS:", error);
 
@@ -84,7 +66,6 @@ try {
     });
   }
 });
-
 
 emailRouter.get("/", async (_req, res) => {
   try {
@@ -97,7 +78,6 @@ emailRouter.get("/", async (_req, res) => {
     );
 
     return res.json(result.rows);
-
   } catch (error) {
     console.error("Fetching emails error:", error);
 
@@ -106,7 +86,6 @@ emailRouter.get("/", async (_req, res) => {
     });
   }
 });
-
 
 emailRouter.get("/search", async (req, res) => {
   try {
@@ -118,24 +97,24 @@ emailRouter.get("/search", async (req, res) => {
       });
     }
 
-    const result = await elasticClient.search({
-      index: "emails",
-      query: {
-        multi_match: {
-          query: q,
-          fields: ["recipient", "subject", "body"],
-        },
-      },
-    });
-
-    const emails = result.hits.hits.map((hit) => hit._source);
+    const result = await pool.query(
+      `SELECT e.id, e.subject, e.body, e.scheduled_at,
+              e.status, r.recipient_email
+       FROM emails e
+       LEFT JOIN recipients r ON e.id = r.email_id
+       WHERE e.subject ILIKE $1
+          OR e.body ILIKE $1
+          OR r.recipient_email ILIKE $1
+       ORDER BY e.created_at DESC`,
+      [`%${q}%`]
+    );
 
     return res.json({
-      count: emails.length,
-      emails,
+      count: result.rows.length,
+      emails: result.rows,
     });
   } catch (error) {
-    console.error("Elasticsearch search error:", error);
+    console.error("Email search error:", error);
 
     return res.status(500).json({
       message: "Email search failed",
